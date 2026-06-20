@@ -2,125 +2,124 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_squared_error, r2_score
-import plotly.graph_objects as go
+import plotly.express as px
 from datetime import datetime, timedelta
 
-# 1. PAGE LAYOUT CONFIGURATION
-st.set_page_config(page_title="Stock Predictor", layout="wide")
-st.title("📈 Stock Price Predictor App")
-st.write("Train a Random Forest model on clean historical data to predict the next day's closing price.")
+# 1. APP VIEWPORT CONFIGURATION
+st.set_page_config(page_title="Investment Tier Matrix", layout="wide")
+st.title("🎯 Strategic Investment Matrix Dashboard")
+st.write("Filter and explore prime asset options structured by historical risk-to-reward metrics rather than speculative projections.")
 
-# 2. SIDEBAR CONTROLS
-st.sidebar.header("Configuration")
-ticker = st.sidebar.text_input("Stock Ticker", value="AAPL").upper()
-years_back = st.sidebar.slider("Years of Historical Data", min_value=1, max_value=10, value=5)
-prediction_days = st.sidebar.slider("Prediction Lookback Window (Days)", min_value=1, max_value=30, value=5)
+# 2. SECTOR PROFILE DATAFRAME
+@st.cache_data
+def get_investment_catalog():
+    # Catalog tracking asset, tier, risk description, and baseline benchmark profiles
+    catalog = {
+        "Ticker": ["AAPL", "NVDA", "O", "JNJ", "TSLA", "BTC-USD", "VOO", "SCHD"],
+        "Name": ["Apple Inc.", "NVIDIA Corporation", "Realty Income", "Johnson & Johnson", "Tesla Inc.", "Bitcoin Crypto", "S&P 500 ETF", "Schwab Dividend ETF"],
+        "Risk Tier": ["Medium Risk", "High Risk", "Low Risk", "Low Risk", "High Risk", "High Risk", "Low Risk", "Low Risk"],
+        "Color Badge": ["🟡 Amber", "🔴 Red", "🟢 Green", "🟢 Green", "🔴 Red", "🔴 Red", "🟢 Green", "🟢 Green"],
+        "Investment Thesis": ["Stable tech ecosystem with strong free cash flows.", "Exponential AI demand catalyst paired with extreme price volatility.", "Consistent real estate monthly dividend payouts.", "Defensive healthcare blue-chip with rock-solid balance sheet.", "High beta innovation stock driven by retail momentum.", "Speculative decentralized digital asset with massive price swings.", "Diversified broad-market exposure mimicking global economic growth.", "Focused high-yield dividend growth for defensive safety."]
+    }
+    return pd.DataFrame(catalog)
 
-# Calculate dynamic tracking dates
-end_date = datetime.now()
-start_date = end_date - timedelta(days=years_back * 365)
+df_catalog = get_investment_catalog()
 
-# 3. ROBUST DATA FETCHING AND CLEANING
-@st.cache_data(ttl=3600)
-def load_and_clean_data(stock_ticker, start, end):
-    # Fetch data explicitly grouping by ticker to control layout
-    data = yf.download(stock_ticker, start=start, end=end, group_by="ticker")
-    
-    if data.empty:
-        return pd.DataFrame()
-        
-    # FIX: Flatten Multi-Index columns if yfinance returns layered headers
-    if isinstance(data.columns, pd.MultiIndex):
-        data.columns = data.columns.get_level_values(-1)
-        
-    # Standardize column naming rules by stripping white spaces
-    data.columns = [str(col).strip() for col in data.columns]
-    
-    # Ensure standard structural arrays are cast explicitly to 1D numeric vectors
-    for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
-        if col in data.columns:
-            data[col] = pd.to_numeric(data[col].values.flatten())
-            
-    return data
-
-with st.spinner(f"Fetching and processing data for {ticker}..."):
-    df = load_and_clean_data(ticker, start_date, end_date)
-
-if df.empty:
-    st.error(f"❌ No data found for ticker '{ticker}'. Please check the symbol and try again.")
-    st.stop()
-
-# Inform user about weekend data schedules
-latest_date = df.index[-1].strftime('%A, %B %d, %Y')
-st.info(f"🗓️ Latest available market data: **{latest_date}**. (Note: Traditional stock markets are closed on weekends and holidays).")
-
-# 4. DATA OVERVIEW
-st.subheader(f"Data Window Preview for {ticker}")
-st.dataframe(df.tail(10), use_container_width=True)
-
-# 5. FEATURE ENGINEERING (LOOKBACK MATRIX)
-# Target variable: The actual closing price of the next trading day
-df['Target'] = df['Close'].shift(-1)
-
-feature_cols = []
-for i in range(prediction_days):
-    col_name = f'Close_Lag_{i+1}'
-    df[col_name] = df['Close'].shift(i)
-    feature_cols.append(col_name)
-
-# Clear structural missing entries caused by shifts
-df_model = df.dropna().copy()
-
-if df_model.empty:
-    st.error("❌ Not enough data rows to train the model. Try expanding the 'Years of Historical Data' or decreasing the 'Lookback Window'.")
-    st.stop()
-
-X = df_model[feature_cols]
-y = df_model['Target']
-
-# Chronological test split to preserve chronological validation structure
-train_size = int(len(X) * 0.8)
-X_train, X_test = X.iloc[:train_size], X.iloc[train_size:]
-y_train, y_test = y.iloc[:train_size], y.iloc[train_size:]
-
-# 6. MODEL TRAINING
-model = RandomForestRegressor(n_estimators=100, random_state=42)
-model.fit(X_train, y_train)
-
-# 7. MODEL EVALUATION METRICS
-predictions = model.predict(X_test)
-rmse = np.sqrt(mean_squared_error(y_test, predictions))
-r2 = r2_score(y_test, predictions)
-
-# Formulate single-row feature array for next upcoming cycle forecast
-latest_features = df['Close'].iloc[-prediction_days:].values[::-1].reshape(1, -1)
-next_day_pred = model.predict(latest_features)[0]
-last_close_val = df['Close'].iloc[-1]
-price_delta = next_day_pred - last_close_val
-
-# Render Metrics Row
-col1, col2, col3 = st.columns(3)
-col1.metric("Model Error Margin (RMSE)", f"${rmse:.2f}", help="Average dollar distance from true price.")
-col2.metric("R² Directional Fit Score", f"{r2:.2f}", help="How well model fits trend. Closer to 1.0 is best.")
-col3.metric("Next Trading Day Prediction", f"${next_day_pred:.2f}", 
-            delta=f"${price_delta:.2f} vs Last Close", help="Calculated forecast target value.")
-
-# 8. PLOTLY VISUALIZATION RENDERING
-st.subheader("Interactive Evaluation: Actual vs. Predicted Movements")
-
-fig = go.Figure()
-fig.add_trace(go.Scatter(x=df_model.index[train_size:], y=y_test, mode='lines', name='True Actual Price', line=dict(color='#00CC96', width=2)))
-fig.add_trace(go.Scatter(x=df_model.index[train_size:], y=predictions, mode='lines', name='Model Prediction', line=dict(color='#EF553B', width=2, dash='dash')))
-
-fig.update_layout(
-    xaxis_title="Timeline Date Range",
-    yaxis_title="Stock Value ($)",
-    hovermode="x unified",
-    template="plotly_dark",
-    margin=dict(l=20, r=20, t=30, b=20),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+# 3. INTERACTIVE SIDEBAR WIDGETS
+st.sidebar.header("Matrix Filters")
+selected_tier = st.sidebar.multiselect(
+    "Filter by Risk Profiles:",
+    options=["Low Risk", "Medium Risk", "High Risk"],
+    default=["Low Risk", "Medium Risk", "High Risk"]
 )
+years_back = st.sidebar.slider("Historical Calculation Window (Years)", min_value=1, max_value=5, value=2)
 
-st.plotly_chart(fig, use_container_width=True)
+# Filter catalog array dynamically based on selection
+df_filtered = df_catalog[df_catalog["Risk Tier"].isin(selected_tier)].reset_index(drop=True)
+
+# 4. PARSE LIVE PERFORMANCE METRICS
+@st.cache_data(ttl=3600)
+def fetch_live_metrics(tickers, years):
+    end = datetime.now()
+    start = end - timedelta(days=years * 365)
+    
+    # Download batch array data safely via yfinance
+    try:
+        data = yf.download(tickers, start=start, end=end, auto_adjust=True, actions=False)
+        if isinstance(data.columns, pd.MultiIndex):
+            data.columns = data.columns.get_level_values(-1)
+        data.columns = [str(col).strip().lower() for col in data.columns]
+        
+        # In batch requests with different column lengths, extract the closing dataframe cleanly
+        close_data = yf.download(tickers, start=start, end=end)['Close']
+        return close_data
+    except Exception:
+        # Fallback empty structure if network errors trigger
+        return pd.DataFrame()
+
+tickers_list = df_filtered["Ticker"].tolist()
+
+if tickers_list:
+    with st.spinner("Calculating live risk-reward variances..."):
+        price_df = fetch_live_metrics(tickers_list, years_back)
+    
+    # Calculate annualized statistics
+    if not price_df.empty:
+        stats = []
+        for ticker in tickers_list:
+            if ticker in price_df.columns:
+                series = price_df[ticker].dropna()
+                if len(series) > 1:
+                    # Calculate percentage shifts to locate compound returns and standard deviation risks
+                    returns = series.pct_change().dropna()
+                    annualized_return = (series.iloc[-1] / series.iloc[0]) ** (1 / years_back) - 1
+                    annualized_volatility = returns.std() * np.sqrt(252)
+                    
+                    stats.append({
+                        "Ticker": ticker,
+                        "Annual Return": annualized_return * 100,
+                        "Historical Risk (Volatility)": annualized_volatility * 100
+                    })
+        
+        df_stats = pd.DataFrame(stats)
+        if not df_stats.empty:
+            df_filtered = pd.merge(df_filtered, df_stats, on="Ticker", how="left")
+
+# 5. RENDER SYSTEM INTERACTIVE ROWS
+st.subheader("📋 Screened Allocation Matrix")
+if df_filtered.empty:
+    st.warning("No assets match your sidebar filter selections.")
+else:
+    for idx, row in df_filtered.iterrows():
+        # Clean expandable cards themed by tier indicators
+        with st.container():
+            col_badge, col_name, col_return, col_risk = st.columns([1.5, 3, 2, 2])
+            
+            # Extract statistics labels
+            ret_val = f"{row['Annual Return']:.1f}%" if "Annual Return" in row else "Data Pending"
+            risk_val = f"{row['Historical Risk (Volatility)']:.1f}%" if "Historical Risk (Volatility)" in row else "Data Pending"
+            
+            col_badge.write(f"### {row['Color Badge']}")
+            col_name.write(f"**{row['Name']} ({row['Ticker']})**\n\n_{row['Investment Thesis']}_")
+            col_return.metric("Est. Annual Reward", ret_val)
+            col_risk.metric("Calculated Risk Metric", risk_val)
+            st.markdown("---")
+
+    # 6. RISK VS REWARD SCATTER PLOT
+    if "Annual Return" in df_filtered.columns:
+        st.subheader("📊 Visualizing Your Options: Risk vs. Reward")
+        st.write("Look for options in the **top-left corner** (High Reward, Low Risk) or find balanced options that suit your personal style.")
+        
+        fig = px.scatter(
+            df_filtered,
+            x="Historical Risk (Volatility)",
+            y="Annual Return",
+            text="Ticker",
+            color="Risk Tier",
+            color_discrete_map={"Low Risk": "#00CC96", "Medium Risk": "#FECB52", "High Risk": "#EF553B"},
+            labels={"Historical Risk (Volatility)": "Risk Axis (Annualized Volatility %)", "Annual Return": "Reward Axis (Annual Returns %)"},
+            template="plotly_dark"
+        )
+        fig.update_traces(textposition='top center', marker=dict(size=14, line=dict(width=1, color='white')))
+        fig.update_layout(margin=dict(l=20, r=20, t=20, b=20))
+        st.plotly_chart(fig, use_container_width=True)
