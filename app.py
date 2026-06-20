@@ -26,15 +26,17 @@ if "language" not in st.session_state:
 
 if "page" not in st.session_state:
     st.session_state.page = "Dashboard"
-    st.sidebar.title("⚙️ Settings")
 
-# Language selector (restored feature)
+# =========================
+# SIDEBAR
+# =========================
+st.sidebar.title("⚙️ Settings")
+
 st.session_state.language = st.sidebar.selectbox(
     "Language",
     ["EN", "MY", "CN"]
 )
 
-# Currency selector (restored feature)
 st.session_state.currency = st.sidebar.selectbox(
     "Currency Display",
     ["USD", "MYR", "EUR"]
@@ -42,7 +44,6 @@ st.session_state.currency = st.sidebar.selectbox(
 
 st.sidebar.markdown("---")
 
-# Watchlist input
 new_stock = st.sidebar.text_input("Add Stock (e.g. TSLA)")
 
 if st.sidebar.button("Add to Watchlist"):
@@ -51,6 +52,7 @@ if st.sidebar.button("Add to Watchlist"):
         st.rerun()
 
 st.sidebar.markdown("### 📌 Watchlist")
+
 for stock in st.session_state.watchlist:
     col1, col2 = st.sidebar.columns([3, 1])
     col1.write(stock)
@@ -58,14 +60,20 @@ for stock in st.session_state.watchlist:
     if col2.button("❌", key=f"del_{stock}"):
         st.session_state.watchlist.remove(stock)
         st.rerun()
-        @st.cache_data(ttl=300)
-        
+
+# =========================
+# FUNCTIONS (MUST BE OUTSIDE ALL BLOCKS)
+# =========================
+@st.cache_data(ttl=300)
 def get_stock_data(ticker):
     try:
         data = yf.download(ticker, period="1mo", interval="1d")
-        if data.empty:
+
+        if data is None or data.empty:
             return None
+
         return data
+
     except Exception:
         return None
 
@@ -73,11 +81,20 @@ def get_stock_data(ticker):
 def get_price(ticker):
     try:
         stock = yf.Ticker(ticker)
-        price = stock.history(period="1d")["Close"].iloc[-1]
-        return round(price, 2)
+        hist = stock.history(period="1d")
+
+        if hist is None or hist.empty:
+            return None
+
+        return round(float(hist["Close"].iloc[-1]), 2)
+
     except Exception:
         return None
-        st.title("📊 Investor Hub Dashboard")
+
+# =========================
+# DASHBOARD
+# =========================
+st.title("📊 Investor Hub Dashboard")
 
 st.write(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
@@ -89,9 +106,10 @@ for i, stock in enumerate(st.session_state.watchlist):
     with cols[i]:
         st.metric(
             label=stock,
-            value=f"{price} {st.session_state.currency}" if price else "N/A"
+            value=f"{price} {st.session_state.currency}" if price is not None else "N/A"
         )
         st.markdown("---")
+
 st.subheader("📉 Stock Charts")
 
 selected = st.selectbox("Select stock", st.session_state.watchlist)
