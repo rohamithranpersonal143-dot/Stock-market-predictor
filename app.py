@@ -59,6 +59,7 @@ for stock in st.session_state.watchlist:
         st.session_state.watchlist.remove(stock)
         st.rerun()
         @st.cache_data(ttl=300)
+        
 def get_stock_data(ticker):
     try:
         data = yf.download(ticker, period="1mo", interval="1d")
